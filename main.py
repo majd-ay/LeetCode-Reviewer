@@ -24,6 +24,7 @@ CLARIFICATION_ERROR_MESSAGE = (
     "Could not generate a clarification answer due to a temporary API error."
 )
 QA_ERROR_MESSAGE = "Q&A could not be generated due to a temporary API error."
+DEFAULT_QUESTION_COUNT = 3
 
 
 def read_text_file(path: str | Path) -> str:
@@ -125,17 +126,17 @@ def create_review_folder(slug: str) -> Path:
     return folder
 
 
-def build_questions_input(solution_text: str) -> str:
+def build_questions_input(solution_text: str, question_count: int) -> str:
     return f"""
 You are a software engineering interviewer.
-Write exactly 3 concise interview follow-up questions based on this problem and solution.
+Write exactly {question_count} concise interview follow-up questions based on this problem and solution.
 Return one question per line with no numbering or extra text.
 
 {solution_text}
 """.strip()
 
 
-def parse_questions(text: str) -> list[str]:
+def parse_questions(text: str, question_count: int) -> list[str]:
     questions = []
 
     for line in text.splitlines():
@@ -143,7 +144,7 @@ def parse_questions(text: str) -> list[str]:
         if question:
             questions.append(question)
 
-    return questions[:3]
+    return questions[:question_count]
 
 def build_feedback_input(solution_text: str, question: str, answer: str) -> str:
     return f"""
@@ -243,14 +244,15 @@ def write_qa_file(qa_path: Path, entries: list[str]) -> None:
     write_text_file(qa_path, "# Interview Q&A\n\n" + "\n\n".join(entries) + "\n")
 
 
-def run_qa_session(client: genai.Client, solution_text: str, qa_path: Path) -> None:
+def run_qa_session(client: genai.Client, solution_text: str, qa_path: Path, question_count: int) -> None:
     try:
         questions = parse_questions(
             generate_text(
                 client,
                 QA_MODELS,
-                build_questions_input(solution_text),
+                build_questions_input(solution_text, question_count),
                 "Q&A session: questions generation",
+                question_count,
             )
         )
     except Exception as e:
@@ -385,8 +387,19 @@ def main() -> None:
     if start_interactive_qa not in YES_ANSWERS:
         print("Skipping interactive Q&A.")
         return
+    question_count_input = input(
+        f"How many questions? [default {DEFAULT_QUESTION_COUNT}]: "
+    ).strip()
 
-    run_qa_session(client, solution_text, review_folder / "qa.md")
+    if question_count_input:
+        try:
+            question_count = int(question_count_input)
+        except ValueError:
+            print(f"Invalid number. Using default: {DEFAULT_QUESTION_COUNT}")
+            question_count = DEFAULT_QUESTION_COUNT
+    else:
+        question_count = DEFAULT_QUESTION_COUNT
+    run_qa_session(client, solution_text, review_folder / "qa.md", question_count)
     print()
     print(f"Q&A saved to {review_folder / 'qa.md'}")
 
