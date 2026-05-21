@@ -102,24 +102,35 @@ def parse_questions(text: str) -> list[str]:
 
     return questions[:3]
 
-
 def build_feedback_input(solution_text: str, question: str, answer: str) -> str:
     return f"""
-You are a software engineering interviewer.
-Evaluate the candidate's answer to the follow-up question below.
-Give concise feedback in 2 to 4 sentences.
-Mention what was correct, what was missing or inaccurate, and one improvement if useful.
+You are a software engineering interviewer giving feedback directly to the person who answered.
+
+Evaluate the answer to the follow-up question below.
+
+Style rules:
+- Write directly to the person using "you" and "your answer".
+- Do not say "the candidate", "the user", "they", or "their answer".
+- Do not write as if the answer is yours.
+- Keep the tone direct, professional, and consistent.
+- Give concise feedback in 2 to 4 sentences.
+
+Content rules:
+- Mention what the answer got right.
+- Mention what was missing or inaccurate.
+- Mention one improvement if useful.
 
 Problem and solution:
 {solution_text}
 
-Question:
+Follow-up question:
 {question}
 
-Candidate answer:
+Answer to evaluate:
 {answer}
-""".strip()
 
+Feedback:
+""".strip()
 
 def format_qa_entry(index: int, question: str, answer: str, feedback: str) -> str:
     return f"""
