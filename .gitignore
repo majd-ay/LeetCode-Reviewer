@@ -4,3 +4,11 @@
 venv/
 .venv/
 *.db
+.env~
+..env.un~
+
+# General editor backups and undo files
+*~
+.*~
+*.un~
+.*.un~

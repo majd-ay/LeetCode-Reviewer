@@ -29,3 +29,6 @@ Provide a cleaner C++ solution only if useful.
 
 # Interview Feedback
 Give direct feedback as if this was a real interview.
+
+Do not include follow-up questions in this review.
+The interactive Q&A mode will generate follow-up questions separately.
