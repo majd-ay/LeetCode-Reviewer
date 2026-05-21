@@ -2,38 +2,58 @@
 Correct.
 
 # Correctness
-The solution is entirely correct. It uses a hash map (`unordered_map` in C++) to store numbers and their corresponding indices as it iterates through the input array `nums`. For each number `nums[i]`, it calculates the `complement` (or `need`) required to reach the `target`. It then efficiently checks if this `complement` already exists in the map. If it does, it means the pair has been found, and the solution correctly returns the index of the `complement` (retrieved from the map) and the current index `i`.
+The solution is perfectly correct. It accurately identifies and implements the optimal approach for the Two Sum problem using a hash map (specifically `unordered_map` in C++).
 
-The order of operations (checking for the `complement` before inserting the current `nums[i]` into the map) is crucial. This ensures that the same element is not used twice to sum to the target, which is a common constraint for this problem. If `nums[i]` itself is the complement, `mp.count(need)` would only find it if an *earlier* occurrence of `nums[i]` at a *different* index was already in the map, correctly handling cases with duplicate numbers.
+The logic is as follows:
+1.  It iterates through the input array `nums` once, keeping track of the current element's value and its index.
+2.  For each `nums[i]`, it calculates the `need` value, which is `target - nums[i]`. This `need` represents the value that, if found among previously seen numbers, would sum up with `nums[i]` to `target`.
+3.  Before adding the current `nums[i]` to the map, it checks if `need` already exists in the `unordered_map`.
+    *   If `need` is found, it means a number `nums[j]` (where `j < i`) exists such that `nums[j] == need`. The map stores `j` as the value associated with `nums[j]`. The solution then immediately returns the indices `{mp[need], i}`.
+    *   If `need` is not found, the current number `nums[i]` and its index `i` are added to the map. This makes `nums[i]` available for future lookups.
+4.  By checking for `need` *before* inserting `nums[i]`, the solution correctly ensures that it doesn't use the same element twice (i.e., `nums[i]` with itself at index `i`). It finds two distinct elements from the array (even if they have the same value, they will have different indices).
+5.  The problem statement typically guarantees exactly one solution, so the `return {};` at the end would theoretically be unreachable, but it's harmless defensive programming.
 
 # Edge Cases
-The solution effectively handles all relevant edge cases:
+The solution handles common edge cases effectively:
 
-*   **Empty array:** While the problem usually guarantees a solution, if `nums` were empty, the loop wouldn't run, and `return {};` would correctly return an empty vector.
-*   **Array with only two elements (the solution itself):** E.g., `nums = {2, 7}, target = 9`. The solution correctly identifies `0` and `1`.
-*   **Duplicate numbers in the array:** E.g., `nums = {3, 3}, target = 6`. The solution correctly finds indices `0` and `1`.
-*   **Target requiring the same number twice (but from different positions):** E.g., `nums = {4, 2, 5, 2}, target = 4`. The solution correctly identifies indices `1` and `3`.
-*   **Negative numbers:** E.g., `nums = {-1, -2, -3, -4, -5}, target = -8`. The solution works correctly with negative values, finding indices `2` and `4`.
-*   **Large numbers/target:** `unordered_map` handles integer ranges effectively without issues.
+*   **Empty array:** If `nums` is empty, `nums.size()` is 0, the loop won't run, and `{}` will be returned (though problem usually implies non-empty input if a solution exists).
+*   **Array with exactly two elements:** E.g., `nums = [2, 7], target = 9`.
+    *   `i=0, nums[0]=2`: `need=7`. `mp` is empty. `mp[2]=0`.
+    *   `i=1, nums[1]=7`: `need=2`. `mp.count(2)` is true. Returns `{mp[2], 1}` which is `{0, 1}`. Correct.
+*   **Negative numbers:** E.g., `nums = [-1, -2], target = -3`.
+    *   `i=0, nums[0]=-1`: `need=-2`. `mp` is empty. `mp[-1]=0`.
+    *   `i=1, nums[1]=-2`: `need=-1`. `mp.count(-1)` is true. Returns `{mp[-1], 1}` which is `{0, 1}`. Correct.
+*   **Duplicate values in `nums` that form the target:** E.g., `nums = [3, 3], target = 6`.
+    *   `i=0, nums[0]=3`: `need=3`. `mp` is empty. `mp[3]=0`.
+    *   `i=1, nums[1]=3`: `need=3`. `mp.count(3)` is true. Returns `{mp[3], 1}` which is `{0, 1}`. Correct, as it uses two distinct elements (at different indices) even if their values are identical.
+*   **Target itself is 0, with positive/negative pair:** E.g., `nums = [1, -1], target = 0`. Handled correctly.
+*   **Target is 0, with two zeros:** E.g., `nums = [0, 4, 0], target = 0`.
+    *   `i=0, nums[0]=0`: `need=0`. `mp` empty. `mp[0]=0`.
+    *   `i=1, nums[1]=4`: `need=-4`. `mp` doesn't have -4. `mp[4]=1`.
+    *   `i=2, nums[2]=0`: `need=0`. `mp.count(0)` is true. Returns `{mp[0], 2}` which is `{0, 2}`. Correct.
 
 # Time Complexity
-*   **O(N)**, where N is the number of elements in `nums`.
-*   The solution iterates through the `nums` array once. Inside the loop, hash map operations (`count`, insertion `[]`, and lookup `[]`) take average `O(1)` time. In the worst case (due to hash collisions), these operations could degrade to `O(N)`, but for typical integer inputs and a well-implemented hash map, the amortized time complexity remains `O(1)`.
+**O(N)**, where N is the number of elements in `nums`.
+The solution iterates through the `nums` array once. Inside the loop, `unordered_map` operations (insertion `mp[nums[i]] = i` and lookup `mp.count(need)`) take, on average, O(1) time. In the worst-case scenario (due to hash collisions), these operations could degenerate to O(N), but this is rare with good hash functions and typically not considered for average-case analysis of `unordered_map`. Thus, the overall average time complexity is dominated by the single pass through the array.
 
 # Space Complexity
-*   **O(N)**, where N is the number of elements in `nums`.
-*   In the worst case, if the pair is found towards the end of the array, up to `N-1` elements might be stored in the `unordered_map` before the solution is found. Each element stored consumes constant space (an integer key and an integer value).
+**O(N)**, where N is the number of elements in `nums`.
+In the worst case, if no pair is found until the very last element (or if no pair exists), the `unordered_map` will store up to N key-value pairs. Each pair consists of an integer (the number from `nums`) and an integer (its index). Therefore, the space required by the map grows linearly with the input size.
 
 # Code Quality
-*   **Readability**: The code is extremely clean, concise, and easy to follow. The logic is straightforward and immediately understandable.
-*   **Naming**: Variable names like `nums`, `target`, `mp` (for map), `need` (for the needed complement), and `i` are standard, descriptive, and appropriate.
-*   **Structure**: The code follows the standard LeetCode class and method structure. The loop and conditional logic are well-organized. The early return upon finding the solution is good practice.
-*   **Interview Style**: This is a textbook optimal solution for the Two Sum problem. It demonstrates a strong understanding of fundamental data structures (hash maps) and their performance characteristics. It's efficient, handles edge cases implicitly, and is written in a clear, professional manner.
+The code quality is excellent:
+*   **Readability:** The code is very easy to read and understand. Variable names like `need` are descriptive and clear.
+*   **Naming:** The class and method names adhere to standard conventions (`Solution`, `twoSum`).
+*   **Structure:** The solution follows a clean, linear structure. The logic is self-contained within the `twoSum` method and is well-organized.
+*   **Interview Style:** This solution demonstrates a solid understanding of data structures and algorithms. It's concise, correct, and directly implements the most efficient approach, which is precisely what an interviewer looks for in this classic problem.
 
 # Improved Solution
-Your solution is already optimal in terms of time and space complexity, and its readability is excellent. There's no significant "improvement" to offer that would make it cleaner or more efficient. It's already an idiomatic and well-regarded solution.
+The provided solution is already optimal in terms of time complexity (O(N) average) and space complexity (O(N)). There isn't a fundamentally "cleaner" or more efficient approach for this specific problem (given the requirement to return indices).
+The current C++ solution is idiomatic and well-written.
 
 # Interview Feedback
-"This is an excellent solution to the Two Sum problem. You've correctly identified and implemented the optimal approach using a hash map. Your code is clear, concise, and correctly handles the logic for finding the complement and returning the indices.
+This is an excellent solution for the Two Sum problem. You've correctly identified and implemented the most efficient approach using a hash map. Your logic is clear, concise, and effectively leverages the O(1) average-case lookup time of `unordered_map` to achieve an optimal time complexity of O(N).
 
-You demonstrated a solid understanding of data structures and algorithms by choosing `unordered_map` for its average O(1) time complexity for lookups and insertions, leading to an overall O(N) time complexity for the solution. Your space complexity analysis of O(N) is also accurate. The implementation correctly handles various test cases, including duplicates and negative numbers, by checking for the complement before inserting the current element. This is exactly what we look for in an optimal solution for this problem. Well done."
+The code is very readable, with appropriate variable names and a clean structure. You've also handled the critical aspect of not using the same element twice by checking for the `need` value *before* inserting the current element into the map. This demonstrates a strong understanding of both data structures and common algorithmic patterns.
+
+Overall, this is a top-tier solution and exactly what I would hope to see for this problem in an interview setting. Well done!

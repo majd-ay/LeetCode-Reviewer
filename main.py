@@ -1,10 +1,15 @@
 import re
+import time
 from pathlib import Path
 
 from dotenv import load_dotenv
 from google import genai
+from google.genai import errors
 
 MODEL = "gemini-2.5-flash"
+MAX_RETRIES = 3
+FEEDBACK_ERROR_MESSAGE = "Could not generate feedback due to a temporary API error."
+QA_ERROR_MESSAGE = "Q&A could not be generated due to a temporary API error."
 
 
 def read_text_file(path: str | Path) -> str:
@@ -21,8 +26,15 @@ def write_text_file(path: str | Path, content: str) -> None:
 
 
 def generate_text(client: genai.Client, contents: str) -> str:
-    response = client.models.generate_content(model=MODEL, contents=contents)
-    return (response.text or "").strip()
+    for attempt in range(MAX_RETRIES + 1):
+        try:
+            response = client.models.generate_content(model=MODEL, contents=contents)
+            return (response.text or "").strip()
+        except errors.ServerError:
+            if attempt == MAX_RETRIES:
+                raise
+
+            time.sleep(2**attempt)
 
 
 def build_review_input(prompt: str, solution_text: str) -> str:
@@ -111,8 +123,20 @@ def format_qa_entry(index: int, question: str, answer: str, feedback: str) -> st
 """.strip()
 
 
+def write_qa_file(qa_path: Path, entries: list[str]) -> None:
+    write_text_file(qa_path, "# Interview Q&A\n\n" + "\n\n".join(entries) + "\n")
+
+
 def run_qa_session(client: genai.Client, solution_text: str, qa_path: Path) -> None:
-    questions = parse_questions(generate_text(client, build_questions_input(solution_text)))
+    try:
+        questions = parse_questions(
+            generate_text(client, build_questions_input(solution_text))
+        )
+    except errors.APIError:
+        print("Could not start Q&A because the model is temporarily unavailable.")
+        write_qa_file(qa_path, [QA_ERROR_MESSAGE])
+        return
+
     entries = []
 
     print()
@@ -122,18 +146,23 @@ def run_qa_session(client: genai.Client, solution_text: str, qa_path: Path) -> N
         print()
         print(f"Question {index}: {question}")
         answer = input("Your answer: ").strip()
-        feedback = generate_text(
-            client,
-            build_feedback_input(solution_text, question, answer),
-        )
+
+        try:
+            feedback = generate_text(
+                client,
+                build_feedback_input(solution_text, question, answer),
+            )
+        except errors.APIError:
+            feedback = FEEDBACK_ERROR_MESSAGE
 
         print()
         print("Feedback:")
         print(feedback)
 
         entries.append(format_qa_entry(index, question, answer, feedback))
+        write_qa_file(qa_path, entries)
 
-    write_text_file(qa_path, "# Interview Q&A\n\n" + "\n\n".join(entries) + "\n")
+    write_qa_file(qa_path, entries)
 
 
 def main() -> None:
@@ -143,12 +172,22 @@ def main() -> None:
     solution_text = read_text_file("input.md")
 
     client = genai.Client()
-    problem_name = generate_text(client, build_problem_name_input(solution_text))
+    try:
+        problem_name = generate_text(client, build_problem_name_input(solution_text))
+    except errors.APIError:
+        print("Could not determine the problem name because the model is unavailable.")
+        return
+
     review_folder = create_review_folder(slugify(problem_name))
 
     write_text_file(review_folder / "problem.md", solution_text)
 
-    review = generate_text(client, build_review_input(prompt, solution_text))
+    try:
+        review = generate_text(client, build_review_input(prompt, solution_text))
+    except errors.APIError:
+        print("Could not generate the review because the model is unavailable.")
+        return
+
     write_text_file(review_folder / "review.md", review)
 
     print(f"Review saved to {review_folder / 'review.md'}")
