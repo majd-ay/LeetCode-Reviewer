@@ -6,7 +6,8 @@ from dotenv import load_dotenv
 from google import genai
 from google.genai import errors
 
-MODEL = "gemini-2.5-flash"
+REVIEW_MODEL = "gemini-2.5-flash"
+QA_MODEL = "gemini-2.5-flash-lite"
 MAX_RETRIES = 3
 FEEDBACK_ERROR_MESSAGE = "Could not generate feedback due to a temporary API error."
 QA_ERROR_MESSAGE = "Q&A could not be generated due to a temporary API error."
@@ -25,10 +26,11 @@ def write_text_file(path: str | Path, content: str) -> None:
     Path(path).write_text(content, encoding="utf-8")
 
 
-def generate_text(client: genai.Client, contents: str) -> str:
+def generate_text(client: genai.Client, model: str, contents: str, purpose: str) -> str:
+    print(f"Calling Gemini model: {model} for {purpose}...")
     for attempt in range(MAX_RETRIES + 1):
         try:
-            response = client.models.generate_content(model=MODEL, contents=contents)
+            response = client.models.generate_content(model=model, contents=contents)
             return (response.text or "").strip()
         except errors.ServerError:
             if attempt == MAX_RETRIES:
@@ -130,7 +132,7 @@ def write_qa_file(qa_path: Path, entries: list[str]) -> None:
 def run_qa_session(client: genai.Client, solution_text: str, qa_path: Path) -> None:
     try:
         questions = parse_questions(
-            generate_text(client, build_questions_input(solution_text))
+            generate_text(client, QA_MODEL, build_questions_input(solution_text), "Q&A session: questions generation")
         )
     except errors.APIError:
         print("Could not start Q&A because the model is temporarily unavailable.")
@@ -150,7 +152,9 @@ def run_qa_session(client: genai.Client, solution_text: str, qa_path: Path) -> N
         try:
             feedback = generate_text(
                 client,
+                QA_MODEL,
                 build_feedback_input(solution_text, question, answer),
+                "Q&A session: reviewing follow-up question",
             )
         except errors.APIError:
             feedback = FEEDBACK_ERROR_MESSAGE
@@ -173,7 +177,12 @@ def main() -> None:
 
     client = genai.Client()
     try:
-        problem_name = generate_text(client, build_problem_name_input(solution_text))
+        problem_name = generate_text(
+            client,
+            REVIEW_MODEL,
+            build_problem_name_input(solution_text),
+            "Extracting problem name",
+        )
     except errors.APIError:
         print("Could not determine the problem name because the model is unavailable.")
         return
@@ -183,7 +192,12 @@ def main() -> None:
     write_text_file(review_folder / "problem.md", solution_text)
 
     try:
-        review = generate_text(client, build_review_input(prompt, solution_text))
+        review = generate_text(
+            client,
+            REVIEW_MODEL,
+            build_review_input(prompt, solution_text),
+            "Reviewing solution",
+        )
     except errors.APIError:
         print("Could not generate the review because the model is unavailable.")
         return
