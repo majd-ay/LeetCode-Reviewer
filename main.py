@@ -10,13 +10,10 @@ from google.genai import errors
 REVIEW_MODELS = [
     "gemini-2.5-flash",
     "gemini-2.5-flash-lite",
-    "gemini-2.0-flash",
 ]
 QA_MODELS = [
     "gemini-2.5-flash-lite",
-    "gemini-2.0-flash-lite",
     "gemini-2.5-flash",
-    "gemini-2.0-flash",
 ]
 MAX_RETRIES = 3
 FEEDBACK_ERROR_MESSAGE = "Could not generate feedback due to a temporary API error."
@@ -74,7 +71,7 @@ def generate_text_with_retries(
         try:
             response = client.models.generate_content(model=model, contents=contents)
             return (response.text or "").strip()
-        except errors.APIError:
+        except errors.ServerError:
             if attempt == MAX_RETRIES:
                 raise
 
