@@ -12,7 +12,12 @@ REVIEW_MODELS = [
     "gemini-2.5-flash-lite",
     "gemini-2.0-flash",
 ]
-QA_MODEL = "gemini-2.5-flash-lite"
+QA_MODELS = [
+    "gemini-2.5-flash-lite",
+    "gemini-2.0-flash-lite",
+    "gemini-2.5-flash",
+    "gemini-2.0-flash",
+]
 MAX_RETRIES = 3
 FEEDBACK_ERROR_MESSAGE = "Could not generate feedback due to a temporary API error."
 QA_ERROR_MESSAGE = "Q&A could not be generated due to a temporary API error."
@@ -33,13 +38,12 @@ def write_text_file(path: str | Path, content: str) -> None:
 
 def generate_text(
     client: genai.Client,
-    models: str | list[str],
+    models: list[str],
     contents: str,
     purpose: str,
 ) -> str:
-    model_list = [models] if isinstance(models, str) else models
 
-    for index, model in enumerate(model_list):
+    for index, model in enumerate(models):
         print(f"Calling Gemini model: {model} for {purpose}...")
 
         try:
@@ -47,10 +51,10 @@ def generate_text(
         except errors.APIError as e:
             last_error = e
 
-            if index == len(model_list) - 1:
+            if index == len(models) - 1:
                 raise
 
-            print(f"Model {model} failed, trying fallback: {model_list[index + 1]}...")
+            print(f"Model {model} failed, trying fallback: {models[index + 1]}...")
 
     raise RuntimeError(f"All models failed for {purpose}: {last_error}")
 
@@ -190,7 +194,7 @@ def run_qa_session(client: genai.Client, solution_text: str, qa_path: Path) -> N
         questions = parse_questions(
             generate_text(
                 client,
-                QA_MODEL,
+                QA_MODELS,
                 build_questions_input(solution_text),
                 "Q&A session: questions generation",
             )
@@ -214,7 +218,7 @@ def run_qa_session(client: genai.Client, solution_text: str, qa_path: Path) -> N
         try:
             feedback = generate_text(
                 client,
-                QA_MODEL,
+                QA_MODELS,
                 build_feedback_input(solution_text, question, answer),
                 "Q&A session: reviewing follow-up question",
             )
