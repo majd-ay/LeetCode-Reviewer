@@ -20,6 +20,9 @@ QA_MODELS = [
 ]
 MAX_RETRIES = 3
 FEEDBACK_ERROR_MESSAGE = "Could not generate feedback due to a temporary API error."
+CLARIFICATION_ERROR_MESSAGE = (
+    "Could not generate a clarification answer due to a temporary API error."
+)
 QA_ERROR_MESSAGE = "Q&A could not be generated due to a temporary API error."
 
 
@@ -42,21 +45,24 @@ def generate_text(
     contents: str,
     purpose: str,
 ) -> str:
-
+    errors_by_model = []
     for index, model in enumerate(models):
         print(f"Calling Gemini model: {model} for {purpose}...")
 
         try:
             return generate_text_with_retries(client, model, contents)
-        except errors.APIError as e:
-            last_error = e
+        except Exception as e:
+            error_message = f"{model}: {type(e).__name__}: {e}"
+            errors_by_model.append(error_message)
 
-            if index == len(models) - 1:
-                raise
+            if index < len(models) - 1:
+                print(f"Model {model} failed. Trying fallback: {models[index + 1]}...")
+            else:
+                print(f"Model {model} failed. No fallback left.")
 
-            print(f"Model {model} failed, trying fallback: {models[index + 1]}...")
-
-    raise RuntimeError(f"All models failed for {purpose}: {last_error}")
+    raise RuntimeError(
+        f"All models failed for {purpose}:\n" + "\n\n".join(errors_by_model)
+    )
 
 
 def generate_text_with_retries(
@@ -169,6 +175,42 @@ Answer to evaluate:
 Feedback:
 """.strip()
 
+
+def build_clarification_input(
+    solution_text: str,
+    question: str,
+    answer: str,
+    feedback: str,
+    clarification: str,
+) -> str:
+    return f"""
+You are a software engineering interviewer answering a clarification directly.
+
+Style rules:
+- Use "you" and "your answer".
+- Do not say "the candidate", "the user", or "they".
+- Keep the answer practical and focused.
+- Use 2 to 5 sentences.
+
+Problem and solution:
+{solution_text}
+
+Follow-up question:
+{question}
+
+User answer:
+{answer}
+
+Feedback already given:
+{feedback}
+
+Clarification question:
+{clarification}
+
+Clarification answer:
+""".strip()
+
+
 def format_qa_entry(index: int, question: str, answer: str, feedback: str) -> str:
     return f"""
 ## Question {index}
@@ -182,6 +224,18 @@ def format_qa_entry(index: int, question: str, answer: str, feedback: str) -> st
 ### Feedback
 
 {feedback}
+""".strip()
+
+
+def format_clarification_entry(index: int, question: str, answer: str) -> str:
+    return f"""
+### Clarification {index}
+
+{question}
+
+#### Answer
+
+{answer}
 """.strip()
 
 
@@ -233,8 +287,64 @@ def run_qa_session(client: genai.Client, solution_text: str, qa_path: Path) -> N
 
         entries.append(format_qa_entry(index, question, answer, feedback))
         write_qa_file(qa_path, entries)
+        run_clarification_rounds(
+            client,
+            solution_text,
+            question,
+            answer,
+            feedback,
+            entries,
+            qa_path,
+        )
 
     write_qa_file(qa_path, entries)
+
+
+def run_clarification_rounds(
+    client: genai.Client,
+    solution_text: str,
+    question: str,
+    answer: str,
+    feedback: str,
+    entries: list[str],
+    qa_path: Path,
+) -> None:
+    for clarification_index in range(1, 3):
+        clarification = input(
+            "Do you have a follow-up question or clarification? "
+            "Press Enter to continue. "
+        ).strip()
+        if not clarification:
+            return
+
+        try:
+            clarification_answer = generate_text(
+                client,
+                QA_MODELS,
+                build_clarification_input(
+                    solution_text,
+                    question,
+                    answer,
+                    feedback,
+                    clarification,
+                ),
+                "Q&A session: answering clarification",
+            )
+        except Exception as e:
+            print("Could not answer the clarification because the model is unavailable.")
+            print(f"Reason: {e}")
+            clarification_answer = CLARIFICATION_ERROR_MESSAGE
+
+        print()
+        print("Clarification answer:")
+        print(clarification_answer)
+
+        entries[-1] += "\n\n" + format_clarification_entry(
+            clarification_index,
+            clarification,
+            clarification_answer,
+        )
+        write_qa_file(qa_path, entries)
 
 
 def main() -> None:
