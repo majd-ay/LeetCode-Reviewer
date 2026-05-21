@@ -12,3 +12,5 @@ venv/
 .*~
 *.un~
 .*.un~
+
+reviews/
