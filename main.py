@@ -8,10 +8,13 @@ from google import genai
 from google.genai import errors
 
 REVIEW_MODELS = [
-    "gemini-2.5-flash",
+    "gemini-2.0-flash",
     "gemini-2.5-flash-lite",
+    "gemini-2.5-flash",
 ]
 QA_MODELS = [
+    "gemini-2.0-flash-lite",
+    "gemini-2.0-flash",
     "gemini-2.5-flash-lite",
     "gemini-2.5-flash",
 ]
@@ -374,6 +377,14 @@ def main() -> None:
     print(f"Review saved to {review_folder / 'review.md'}")
     print()
     print(review)
+
+    YES_ANSWERS = {"y", "yes"}
+
+    start_interactive_qa = input("Start interactive Q&A? [y/N]: ").strip().lower()
+
+    if start_interactive_qa not in YES_ANSWERS:
+        print("Skipping interactive Q&A.")
+        return
 
     run_qa_session(client, solution_text, review_folder / "qa.md")
     print()
