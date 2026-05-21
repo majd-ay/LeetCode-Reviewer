@@ -7,7 +7,11 @@ from dotenv import load_dotenv
 from google import genai
 from google.genai import errors
 
-REVIEW_MODEL = "gemini-2.5-flash"
+REVIEW_MODELS = [
+    "gemini-2.5-flash",
+    "gemini-2.5-flash-lite",
+    "gemini-2.0-flash",
+]
 QA_MODEL = "gemini-2.5-flash-lite"
 MAX_RETRIES = 3
 FEEDBACK_ERROR_MESSAGE = "Could not generate feedback due to a temporary API error."
@@ -27,17 +31,46 @@ def write_text_file(path: str | Path, content: str) -> None:
     Path(path).write_text(content, encoding="utf-8")
 
 
-def generate_text(client: genai.Client, model: str, contents: str, purpose: str) -> str:
-    print(f"Calling Gemini model: {model} for {purpose}...")
+def generate_text(
+    client: genai.Client,
+    models: str | list[str],
+    contents: str,
+    purpose: str,
+) -> str:
+    model_list = [models] if isinstance(models, str) else models
+
+    for index, model in enumerate(model_list):
+        print(f"Calling Gemini model: {model} for {purpose}...")
+
+        try:
+            return generate_text_with_retries(client, model, contents)
+        except errors.APIError as e:
+            last_error = e
+
+            if index == len(model_list) - 1:
+                raise
+
+            print(f"Model {model} failed, trying fallback: {model_list[index + 1]}...")
+
+    raise RuntimeError(f"All models failed for {purpose}: {last_error}")
+
+
+def generate_text_with_retries(
+    client: genai.Client,
+    model: str,
+    contents: str,
+) -> str:
     for attempt in range(MAX_RETRIES + 1):
         try:
             response = client.models.generate_content(model=model, contents=contents)
             return (response.text or "").strip()
-        except errors.ServerError:
+        except errors.APIError:
             if attempt == MAX_RETRIES:
                 raise
 
-            time.sleep(2**attempt)
+            wait_seconds = 2**attempt
+            print(f"Temporary API error. Retrying in {wait_seconds} seconds...")
+            time.sleep(wait_seconds)
 
 
 def build_review_input(prompt: str, solution_text: str) -> str:
@@ -162,8 +195,9 @@ def run_qa_session(client: genai.Client, solution_text: str, qa_path: Path) -> N
                 "Q&A session: questions generation",
             )
         )
-    except errors.APIError:
+    except Exception as e:
         print("Could not start Q&A because the model is temporarily unavailable.")
+        print(f"Reason: {e}")
         write_qa_file(qa_path, [QA_ERROR_MESSAGE])
         return
 
@@ -184,7 +218,9 @@ def run_qa_session(client: genai.Client, solution_text: str, qa_path: Path) -> N
                 build_feedback_input(solution_text, question, answer),
                 "Q&A session: reviewing follow-up question",
             )
-        except errors.APIError:
+        except Exception as e:
+            print("Could not start Q&A because the model is temporarily unavailable.")
+            print(f"Reason: {e}")
             feedback = FEEDBACK_ERROR_MESSAGE
 
         print()
@@ -213,12 +249,13 @@ def main() -> None:
     try:
         review = generate_text(
             client,
-            REVIEW_MODEL,
+            REVIEW_MODELS,
             build_review_input(prompt, solution_text),
             "Reviewing solution",
         )
-    except errors.APIError:
+    except Exception as e:
         print("Could not generate the review because the model is unavailable.")
+        print(f"Reason: {e}")
         return
 
     write_text_file(review_folder / "review.md", review)
