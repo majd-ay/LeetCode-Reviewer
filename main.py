@@ -1,5 +1,6 @@
 import re
 import time
+from datetime import datetime
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -49,19 +50,30 @@ Here is the user's problem and solution:
 """.strip()
 
 
-def build_problem_name_input(solution_text: str) -> str:
-    return f"""
-Extract the LeetCode problem name from the text below.
-Return only the problem name.
-If the name is not explicit, return a short likely name based on the problem statement.
-
-{solution_text}
-""".strip()
-
-
 def slugify(name: str) -> str:
     slug = re.sub(r"[^a-z0-9]+", "-", name.lower()).strip("-")
     return slug or "problem"
+
+
+def extract_problem_name(solution_text: str) -> str | None:
+    generic_titles = {"problem", "my solution", "solution"}
+
+    for line in solution_text.splitlines():
+        match = re.match(r"^#\s+(.+?)\s*$", line)
+        if not match:
+            continue
+
+        title = match.group(1).strip()
+        if title.lower() not in generic_titles:
+            return title
+
+        return None
+
+    return None
+
+
+def fallback_slug() -> str:
+    return datetime.now().strftime("leetcode-review-%Y%m%d-%H%M%S")
 
 
 def create_review_folder(slug: str) -> Path:
@@ -132,7 +144,12 @@ def write_qa_file(qa_path: Path, entries: list[str]) -> None:
 def run_qa_session(client: genai.Client, solution_text: str, qa_path: Path) -> None:
     try:
         questions = parse_questions(
-            generate_text(client, QA_MODEL, build_questions_input(solution_text), "Q&A session: questions generation")
+            generate_text(
+                client,
+                QA_MODEL,
+                build_questions_input(solution_text),
+                "Q&A session: questions generation",
+            )
         )
     except errors.APIError:
         print("Could not start Q&A because the model is temporarily unavailable.")
@@ -176,18 +193,9 @@ def main() -> None:
     solution_text = read_text_file("input.md")
 
     client = genai.Client()
-    try:
-        problem_name = generate_text(
-            client,
-            REVIEW_MODEL,
-            build_problem_name_input(solution_text),
-            "Extracting problem name",
-        )
-    except errors.APIError:
-        print("Could not determine the problem name because the model is unavailable.")
-        return
-
-    review_folder = create_review_folder(slugify(problem_name))
+    problem_name = extract_problem_name(solution_text)
+    review_slug = slugify(problem_name) if problem_name else fallback_slug()
+    review_folder = create_review_folder(review_slug)
 
     write_text_file(review_folder / "problem.md", solution_text)
 
