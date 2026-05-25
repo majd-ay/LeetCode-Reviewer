@@ -1,0 +1,22 @@
+These tests were generated automatically and should be reviewed if they fail.
+
+Compile command: g++ -std=c++17 -Wall -Wextra -pedantic test_main.cpp -o test_runner.exe
+Compile exit code: 0
+
+Compile STDOUT:
+
+
+Compile STDERR:
+
+
+Run command: test_runner.exe
+Run exit code: 0
+
+Run STDOUT:
+Test Case 1: PASSED
+Test Case 2: PASSED
+Test Case 3: PASSED
+
+
+Run STDERR:
+

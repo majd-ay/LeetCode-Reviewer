@@ -20,6 +20,11 @@ QA_MODELS = [
     "gemini-2.5-flash-lite",
     "gemini-2.5-flash",
 ]
+TEST_MODELS = [
+    "gemini-2.0-flash",
+    "gemini-2.5-flash-lite",
+    "gemini-2.5-flash",
+]
 MAX_RETRIES = 3
 FEEDBACK_ERROR_MESSAGE = "Could not generate feedback due to a temporary API error."
 CLARIFICATION_ERROR_MESSAGE = (
@@ -27,6 +32,11 @@ CLARIFICATION_ERROR_MESSAGE = (
 )
 QA_ERROR_MESSAGE = "Q&A could not be generated due to a temporary API error."
 DEFAULT_QUESTION_COUNT = 3
+DEFAULT_TEST_COUNT = 5
+MAX_TEST_COUNT = 10
+GENERATED_TEST_NOTE = (
+    "These tests were generated automatically and should be reviewed if they fail."
+)
 YES_ANSWERS = {"y", "yes"}
 NO_ANSWERS = {"n", "no"}
 
@@ -175,7 +185,79 @@ STDERR:
 """
 
 
-def run_cpp_compile_check(solution_text: str, review_folder: Path) -> None:
+def strip_code_fence(text: str) -> str:
+    match = re.search(
+        r"^\s*```(?:cpp|c\+\+|C\+\+)?\s*\n(.*?)\n```\s*$",
+        text,
+        re.DOTALL,
+    )
+    if match:
+        return match.group(1).strip()
+
+    return text.strip()
+
+
+def build_test_generation_input(solution_text: str, test_count: int) -> str:
+    return f"""
+Generate a complete self-contained C++17 test harness for this LeetCode problem and solution.
+
+Rules:
+- Return only C++ code, with no Markdown fences or explanation.
+- Include #include <bits/stdc++.h> and using namespace std;.
+- Include any required LeetCode helper structs/classes, such as ListNode or TreeNode, if needed.
+- Include the user's Solution class/code from the input below.
+- Include helper functions for building/comparing linked lists or trees if needed.
+- Include int main().
+- Include exactly {test_count} meaningful tests.
+- Print clear cout output for passed/failed tests.
+- Exit with code 0 only if every generated test passes.
+- Do not review or critique the solution.
+
+Problem and solution:
+{solution_text}
+""".strip()
+
+
+def parse_test_count(test_count_input: str) -> int:
+    try:
+        test_count = int(test_count_input) if test_count_input else DEFAULT_TEST_COUNT
+    except ValueError:
+        test_count = DEFAULT_TEST_COUNT
+
+    return max(1, min(MAX_TEST_COUNT, test_count))
+
+
+def format_test_result(
+    compile_stdout: str,
+    compile_stderr: str,
+    compile_exit_code: int | str,
+    run_stdout: str = "",
+    run_stderr: str = "",
+    run_exit_code: int | str = "not run",
+) -> str:
+    return f"""{GENERATED_TEST_NOTE}
+
+Compile command: g++ -std=c++17 -Wall -Wextra -pedantic test_main.cpp -o test_runner.exe
+Compile exit code: {compile_exit_code}
+
+Compile STDOUT:
+{compile_stdout}
+
+Compile STDERR:
+{compile_stderr}
+
+Run command: test_runner.exe
+Run exit code: {run_exit_code}
+
+Run STDOUT:
+{run_stdout}
+
+Run STDERR:
+{run_stderr}
+"""
+
+
+def run_cpp_compile_check(solution_text: str, review_folder: Path) -> bool:
     compile_folder = review_folder / "compile"
     compile_folder.mkdir(parents=True, exist_ok=True)
     result_path = compile_folder / "compile_result.txt"
@@ -185,7 +267,7 @@ def run_cpp_compile_check(solution_text: str, review_folder: Path) -> None:
         message = "No C++ solution code found in input.md, so the compile check was skipped."
         write_text_file(result_path, message + "\n")
         print(message)
-        return
+        return False
 
     write_text_file(compile_folder / "main.cpp", build_compile_main(cpp_code))
 
@@ -193,7 +275,7 @@ def run_cpp_compile_check(solution_text: str, review_folder: Path) -> None:
         message = "C++ compile check skipped because g++ was not found on this system."
         write_text_file(result_path, message + "\n")
         print(message)
-        return
+        return False
 
     command = [
         "g++",
@@ -216,7 +298,7 @@ def run_cpp_compile_check(solution_text: str, review_folder: Path) -> None:
         message = "C++ compile check skipped because g++ was not found on this system."
         write_text_file(result_path, message + "\n")
         print(message)
-        return
+        return False
     write_text_file(
         result_path,
         format_compile_result(result.stdout, result.stderr, result.returncode),
@@ -224,8 +306,105 @@ def run_cpp_compile_check(solution_text: str, review_folder: Path) -> None:
 
     if result.returncode == 0:
         print(f"C++ compile check passed. Results saved to {result_path}")
+        return True
     else:
         print(f"C++ compile check found syntax issues. Results saved to {result_path}")
+        return False
+
+
+def run_generated_cpp_tests(
+    client: genai.Client,
+    solution_text: str,
+    review_folder: Path,
+    test_count: int,
+) -> None:
+    tests_folder = review_folder / "tests"
+    tests_folder.mkdir(parents=True, exist_ok=True)
+    test_main_path = tests_folder / "test_main.cpp"
+    result_path = tests_folder / "test_result.txt"
+
+    try:
+        test_harness = generate_text(
+            client,
+            TEST_MODELS,
+            build_test_generation_input(solution_text, test_count),
+            "Generating C++ tests",
+        )
+    except Exception as e:
+        message = "Could not generate C++ tests because the model is unavailable."
+        write_text_file(result_path, f"{GENERATED_TEST_NOTE}\n\n{message}\nReason: {e}\n")
+        print(message)
+        print(f"Reason: {e}")
+        return
+
+    write_text_file(test_main_path, strip_code_fence(test_harness))
+
+    if shutil.which("g++") is None:
+        message = "Generated C++ tests could not run because g++ was not found."
+        write_text_file(result_path, f"{GENERATED_TEST_NOTE}\n\n{message}\n")
+        print(message)
+        return
+
+    compile_command = [
+        "g++",
+        "-std=c++17",
+        "-Wall",
+        "-Wextra",
+        "-pedantic",
+        "test_main.cpp",
+        "-o",
+        "test_runner.exe",
+    ]
+    try:
+        compile_result = subprocess.run(
+            compile_command,
+            cwd=tests_folder,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+    except FileNotFoundError:
+        message = "Generated C++ tests could not run because g++ was not found."
+        write_text_file(result_path, f"{GENERATED_TEST_NOTE}\n\n{message}\n")
+        print(message)
+        return
+
+    if compile_result.returncode != 0:
+        write_text_file(
+            result_path,
+            format_test_result(
+                compile_result.stdout,
+                compile_result.stderr,
+                compile_result.returncode,
+            ),
+        )
+        print(f"Generated C++ tests failed to compile. Results saved to {result_path}")
+        return
+
+    runner_path = (tests_folder / "test_runner.exe").resolve()
+    run_result = subprocess.run(
+        [str(runner_path)],
+        cwd=tests_folder,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    write_text_file(
+        result_path,
+        format_test_result(
+            compile_result.stdout,
+            compile_result.stderr,
+            compile_result.returncode,
+            run_result.stdout,
+            run_result.stderr,
+            run_result.returncode,
+        ),
+    )
+
+    if run_result.returncode == 0:
+        print(f"Generated C++ tests passed. Results saved to {result_path}")
+    else:
+        print(f"Generated C++ tests failed. Results saved to {result_path}")
 
 
 def build_questions_input(solution_text: str, question_count: int) -> str:
@@ -490,9 +669,21 @@ def main() -> None:
     run_compile_check = input("Run C++ compile check? [y/N]: ").strip().lower()
 
     if run_compile_check in YES_ANSWERS:
-        run_cpp_compile_check(solution_text, review_folder)
+        compile_passed = run_cpp_compile_check(solution_text, review_folder)
     else:
+        compile_passed = False
         print("Skipping C++ compile check.")
+
+    if compile_passed:
+        run_generated_tests = input("Run generated C++ tests? [y/N]: ").strip().lower()
+        if run_generated_tests in YES_ANSWERS:
+            test_count_input = input(
+                f"How many tests? [default {DEFAULT_TEST_COUNT}, max {MAX_TEST_COUNT}]: "
+            ).strip()
+            test_count = parse_test_count(test_count_input)
+            run_generated_cpp_tests(client, solution_text, review_folder, test_count)
+        else:
+            print("Skipping generated C++ tests.")
 
     start_interactive_qa = input("Start interactive Q&A? [y/N]: ").strip().lower()
 
