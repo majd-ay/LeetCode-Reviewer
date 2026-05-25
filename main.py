@@ -28,6 +28,7 @@ CLARIFICATION_ERROR_MESSAGE = (
 QA_ERROR_MESSAGE = "Q&A could not be generated due to a temporary API error."
 DEFAULT_QUESTION_COUNT = 3
 YES_ANSWERS = {"y", "yes"}
+NO_ANSWERS = {"n", "no"}
 
 
 def read_text_file(path: str | Path) -> str:
@@ -463,23 +464,28 @@ def main() -> None:
 
     write_text_file(review_folder / "problem.md", solution_text)
 
-    try:
-        review = generate_text(
-            client,
-            REVIEW_MODELS,
-            build_review_input(prompt, solution_text),
-            "Reviewing solution",
-        )
-    except Exception as e:
-        print("Could not generate the review because the model is unavailable.")
-        print(f"Reason: {e}")
-        return
+    generate_review = input("Generate Gemini review? [Y/n]: ").strip().lower()
 
-    write_text_file(review_folder / "review.md", review)
+    if generate_review in NO_ANSWERS:
+        print("Skipping Gemini review.")
+    else:
+        try:
+            review = generate_text(
+                client,
+                REVIEW_MODELS,
+                build_review_input(prompt, solution_text),
+                "Reviewing solution",
+            )
+        except Exception as e:
+            print("Could not generate the review because the model is unavailable.")
+            print(f"Reason: {e}")
+            return
 
-    print(f"Review saved to {review_folder / 'review.md'}")
-    print()
-    print(review)
+        write_text_file(review_folder / "review.md", review)
+
+        print(f"Review saved to {review_folder / 'review.md'}")
+        print()
+        print(review)
 
     run_compile_check = input("Run C++ compile check? [y/N]: ").strip().lower()
 
