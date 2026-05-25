@@ -1,1 +1,8 @@
-C++ compile check skipped because g++ was not found on this system.
+Command: g++ -std=c++17 -Wall -Wextra -pedantic -fsyntax-only main.cpp
+Exit code: 0
+
+STDOUT:
+
+
+STDERR:
+
