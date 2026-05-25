@@ -1,4 +1,6 @@
 import re
+import shutil
+import subprocess
 import time
 from datetime import datetime
 from pathlib import Path
@@ -25,6 +27,7 @@ CLARIFICATION_ERROR_MESSAGE = (
 )
 QA_ERROR_MESSAGE = "Q&A could not be generated due to a temporary API error."
 DEFAULT_QUESTION_COUNT = 3
+YES_ANSWERS = {"y", "yes"}
 
 
 def read_text_file(path: str | Path) -> str:
@@ -124,6 +127,104 @@ def create_review_folder(slug: str) -> Path:
     folder = Path("reviews") / slug
     folder.mkdir(parents=True, exist_ok=True)
     return folder
+
+
+def extract_cpp_solution_code(solution_text: str) -> str | None:
+    fenced_match = re.search(
+        r"```(?:cpp|c\+\+)\s*\n(.*?)```",
+        solution_text,
+        re.DOTALL | re.IGNORECASE,
+    )
+    if fenced_match:
+        return fenced_match.group(1).strip()
+
+    heading_match = re.search(
+        r"^#\s+My Solution\s*$",
+        solution_text,
+        re.MULTILINE | re.IGNORECASE,
+    )
+    if not heading_match:
+        return None
+
+    fallback_code = solution_text[heading_match.end() :].strip()
+    return fallback_code or None
+
+
+def build_compile_main(cpp_code: str) -> str:
+    return f"""#include <bits/stdc++.h>
+using namespace std;
+
+{cpp_code}
+
+int main() {{
+    return 0;
+}}
+"""
+
+
+def format_compile_result(stdout: str, stderr: str, exit_code: int | str) -> str:
+    return f"""Command: g++ -std=c++17 -Wall -Wextra -pedantic -fsyntax-only main.cpp
+Exit code: {exit_code}
+
+STDOUT:
+{stdout}
+
+STDERR:
+{stderr}
+"""
+
+
+def run_cpp_compile_check(solution_text: str, review_folder: Path) -> None:
+    compile_folder = review_folder / "compile"
+    compile_folder.mkdir(parents=True, exist_ok=True)
+    result_path = compile_folder / "compile_result.txt"
+
+    cpp_code = extract_cpp_solution_code(solution_text)
+    if cpp_code is None:
+        message = "No C++ solution code found in input.md, so the compile check was skipped."
+        write_text_file(result_path, message + "\n")
+        print(message)
+        return
+
+    write_text_file(compile_folder / "main.cpp", build_compile_main(cpp_code))
+
+    if shutil.which("g++") is None:
+        message = "C++ compile check skipped because g++ was not found on this system."
+        write_text_file(result_path, message + "\n")
+        print(message)
+        return
+
+    command = [
+        "g++",
+        "-std=c++17",
+        "-Wall",
+        "-Wextra",
+        "-pedantic",
+        "-fsyntax-only",
+        "main.cpp",
+    ]
+    try:
+        result = subprocess.run(
+            command,
+            cwd=compile_folder,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+    except FileNotFoundError:
+        message = "C++ compile check skipped because g++ was not found on this system."
+        write_text_file(result_path, message + "\n")
+        print(message)
+        return
+    write_text_file(
+        result_path,
+        format_compile_result(result.stdout, result.stderr, result.returncode),
+    )
+
+    if result.returncode == 0:
+        print(f"C++ compile check passed. Results saved to {result_path}")
+    else:
+        print(f"C++ compile check found syntax issues. Results saved to {result_path}")
 
 
 def build_questions_input(solution_text: str, question_count: int) -> str:
@@ -252,8 +353,8 @@ def run_qa_session(client: genai.Client, solution_text: str, qa_path: Path, ques
                 QA_MODELS,
                 build_questions_input(solution_text, question_count),
                 "Q&A session: questions generation",
-                question_count,
-            )
+            ),
+            question_count,
         )
     except Exception as e:
         print("Could not start Q&A because the model is temporarily unavailable.")
@@ -380,7 +481,12 @@ def main() -> None:
     print()
     print(review)
 
-    YES_ANSWERS = {"y", "yes"}
+    run_compile_check = input("Run C++ compile check? [y/N]: ").strip().lower()
+
+    if run_compile_check in YES_ANSWERS:
+        run_cpp_compile_check(solution_text, review_folder)
+    else:
+        print("Skipping C++ compile check.")
 
     start_interactive_qa = input("Start interactive Q&A? [y/N]: ").strip().lower()
 
